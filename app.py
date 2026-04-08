@@ -7,8 +7,12 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app)
 
-# Browser ဟန်ဆောင်ရန် User-Agent
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+
+# Host Website ကနေ လာတာပါလို့ ဟန်ဆောင်ပေးမယ့် Function
+def get_referer(url):
+    parsed = urllib.parse.urlparse(url)
+    return f"{parsed.scheme}://{parsed.netloc}/"
 
 @app.route('/stream.m3u8')
 def generate_playlist():
@@ -16,10 +20,13 @@ def generate_playlist():
     if not video_url:
         return "Missing URL", 400
 
-    # 1. FFprobe သုံးပြီး ဗီဒီယိုရဲ့ အရှည်ကို ယူမယ် (User-Agent ထည့်ထားတယ်)
+    referer = get_referer(video_url)
+
+    # ffprobe မှာ Referer header ထပ်ထည့်ထားပါတယ်
     probe_cmd = [
         'ffprobe', 
         '-user_agent', USER_AGENT,
+        '-headers', f'Referer: {referer}\r\n',
         '-v', 'error', 
         '-show_entries', 'format=duration', 
         '-of', 'default=noprint_wrappers=1:nokey=1', 
@@ -27,13 +34,11 @@ def generate_playlist():
     ]
     
     try:
-        # Timeout ကို 30 စက္ကန့်အထိ တိုးပေးထားပါတယ်
         duration_str = subprocess.check_output(probe_cmd, timeout=30).decode('utf-8').strip()
         duration = float(duration_str)
     except Exception as e:
-        return f"Error probing video. URL might be blocked or invalid. Error: {e}", 400
+        return f"Error probing video. URL blocked by Cloudflare/Firewall or not optimized. Error: {e}", 400
 
-    # 2. M3U8 Playlist ဖန်တီးမယ်
     segment_length = 10.0  
     m3u8_content = [
         "#EXTM3U",
@@ -53,7 +58,6 @@ def generate_playlist():
         current_time += seg_dur
 
     m3u8_content.append("#EXT-X-ENDLIST")
-    
     return Response("\n".join(m3u8_content), mimetype="application/vnd.apple.mpegurl")
 
 @app.route('/segment.ts')
@@ -65,10 +69,13 @@ def get_segment():
     if not all([video_url, start, duration]):
         return "Missing parameters", 400
 
-    # 3. FFmpeg နဲ့ Video အပိုင်းလေးတွေ ဖြတ်မယ် (User-Agent ထည့်ထားတယ်)
+    referer = get_referer(video_url)
+
+    # ffmpeg မှာလည်း Referer header ထပ်ထည့်ထားပါတယ်
     command = [
         'ffmpeg',
         '-user_agent', USER_AGENT,
+        '-headers', f'Referer: {referer}\r\n',
         '-ss', str(start),    
         '-i', video_url,      
         '-t', str(duration),  
