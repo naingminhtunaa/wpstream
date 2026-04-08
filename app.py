@@ -1,11 +1,10 @@
 import os
 from flask import Flask, request, Response, stream_with_context
 from flask_cors import CORS
-import requests
 import subprocess
 
 app = Flask(__name__)
-CORS(app)  # WordPress ကနေ လှမ်းခေါ်လို့ရအောင် CORS allow လုပ်ခြင်း
+CORS(app)
 
 @app.route('/stream.m3u8')
 def stream_m3u8():
@@ -13,23 +12,31 @@ def stream_m3u8():
     if not video_url:
         return "Missing video URL", 400
 
-    # FFmpeg သုံးပြီး MP4 ကို HLS (m3u8) အဖြစ် Real-time ပြောင်းလဲခြင်း
+    # FFmpeg command ကို stream ပိုမြန်အောင် optimized လုပ်ထားပါတယ်
     command = [
         'ffmpeg',
+        '-reconnect', '1',
+        '-reconnect_streamed', '1',
+        '-reconnect_delay_max', '5',
         '-i', video_url,
-        '-codec:', 'copy', # Video quality မကျအောင် မူရင်းအတိုင်း copy ကူးခြင်း
-        '-start_number', '0',
-        '-hls_time', '10',
-        '-hls_list_size', '0',
+        '-codec', 'copy', # encoding မလုပ်ဘဲ တိုက်ရိုက်ကူးတဲ့အတွက် မြန်ပါတယ်
         '-f', 'hls',
-        'pipe:1' # Output ကို output stream ဆီ တိုက်ရိုက်ပို့ခြင်း
+        '-hls_time', '6',
+        '-hls_list_size', '0',
+        'pipe:1'
     ]
 
-    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
 
     def generate():
-        for line in process.stdout:
-            yield line
+        try:
+            while True:
+                data = process.stdout.read(1024)
+                if not data:
+                    break
+                yield data
+        finally:
+            process.kill() # Player ပိတ်လိုက်ရင် FFmpeg ကိုပါ ရပ်ပစ်ဖို့
 
     return Response(stream_with_context(generate()), mimetype='application/vnd.apple.mpegurl')
 
