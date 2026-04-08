@@ -7,4 +7,4 @@ WORKDIR /app
 COPY . /app
 RUN pip install flask flask-cors requests gunicorn
 
-CMD ["gunicorn", "-b", "0.0.0.0:8080", "app:app"]
+CMD ["gunicorn", "--timeout", "300", "-b", "0.0.0.0:8080", "app:app"]
